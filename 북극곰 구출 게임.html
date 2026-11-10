@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>북극곰 구하기 3D</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gamja+Flower&display=swap" rel="stylesheet">
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Jua', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .bounce-anim {
+            animation: bounce 1.5s infinite;
+        }
+
+        .pulse-anim {
+            animation: pulse-slow 2s infinite;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(12px);
+            border: 4px solid #38bdf8;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+
+        /* Speech Bubble for Polar Bear */
+        .speech-bubble {
+            position: absolute;
+            background: #ffffff;
+            border: 4px solid #0284c7;
+            border-radius: 24px;
+            padding: 14px 20px;
+            box-shadow: 0 8px 25px rgba(2, 132, 199, 0.25);
+            max-width: 300px;
+            text-align: center;
+            transform: translate(-50%, -100%);
+            pointer-events: none;
+            transition: all 0.2s ease-out;
+        }
+
+        .speech-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 18px 12px 0 12px;
+            border-style: solid;
+            border-color: #0284c7 transparent transparent transparent;
+        }
+
+        .speech-bubble::before {
+            content: '';
+            position: absolute;
+            bottom: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 13px 8px 0 8px;
+            border-style: solid;
+            border-color: #ffffff transparent transparent transparent;
+            z-index: 1;
+        }
+
+        @keyframes hit-flash {
+            0%, 100% { background-color: rgba(239, 68, 68, 0); }
+            50% { background-color: rgba(239, 68, 68, 0.35); }
+        }
+
+        .hit-stun-active {
+            animation: hit-flash 0.4s ease-in-out infinite;
+        }
+
+        #confetti-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 50;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-sky-100">
+
+    <!-- 3D Canvas container -->
+    <div id="canvas-container"></div>
+    
+    <!-- Red Hit Stun Overlay Layer -->
+    <div id="hit-flash-overlay" class="fixed inset-0 pointer-events-none z-30"></div>
+
+    <!-- Canvas for Confetti Fireworks -->
+    <canvas id="confetti-canvas"></canvas>
+
+    <!-- Dynamic Bear Speech Bubble Overlay -->
+    <div id="bear-speech-container" class="absolute top-0 left-0 z-20 pointer-events-none w-full h-full">
+        <div id="bear-speech" class="speech-bubble">
+            <div class="text-sky-600 font-extrabold text-xs mb-1">🐾 도움이 필요한 북극곰</div>
+            <p id="bear-speech-text" class="text-gray-800 text-base md:text-lg font-bold leading-snug">
+                "지구가 뜨거워져서 얼음이 다 녹고 있어... 😭 <br>지구를 도와줘!"
+            </p>
+        </div>
+    </div>
+
+    <!-- UI Overlay Layer -->
+    <div class="ui-layer p-4 md:p-6">
+        
+        <!-- Top HUD (Progress & Score) -->
+        <div id="hud" class="flex justify-between items-center w-full max-w-4xl mx-auto hidden">
+            <!-- Stage Progress -->
+            <div class="glass-panel px-4 py-2 rounded-full flex items-center gap-3 border-emerald-400">
+                <span class="text-xl md:text-2xl text-emerald-600"><i class="fa-solid fa-compass"></i></span>
+                <span id="progress-text" class="text-lg md:text-xl text-gray-800 font-bold">탐험 진행률: 0/5</span>
+            </div>
+
+            <!-- Target Bear Status -->
+            <div class="glass-panel px-4 py-2 rounded-full flex items-center gap-2 border-sky-400">
+                <span class="text-lg md:text-xl text-sky-600 font-bold">북극곰 구하기 🧊</span>
+            </div>
+        </div>
+
+        <!-- Floating Toast Notification -->
+        <div id="obstacle-toast" class="self-center glass-panel px-6 py-4 rounded-2xl text-center transform -translate-y-24 opacity-0 transition-all duration-500 max-w-lg shadow-2xl">
+            <div id="toast-title" class="text-2xl font-extrabold mb-1"></div>
+            <div id="toast-text" class="text-lg md:text-xl text-gray-800 font-bold leading-relaxed"></div>
+        </div>
+
+        <!-- Start Action Button -->
+        <div id="start-btn-container" class="self-center mb-6 interactive">
+            <button id="start-btn" class="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-extrabold text-2xl md:text-3xl px-10 py-5 rounded-3xl shadow-2xl border-4 border-white flex items-center gap-3 transition transform pulse-anim">
+                <span>🚀 북극곰 구하기 출발!</span>
+            </button>
+        </div>
+
+        <!-- Jump Action Button -->
+        <div id="jump-btn-container" class="self-end mr-4 mb-4 hidden interactive">
+            <button id="jump-btn" class="bg-amber-400 hover:bg-amber-500 active:scale-95 text-white font-bold text-2xl px-8 py-5 rounded-full shadow-2xl border-4 border-white flex items-center gap-3 transition transform pulse-anim">
+                <i class="fa-solid fa-person-walking-arrow-loop-left text-3xl"></i>
+                <span>점프! (Space)</span>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- Modals -->
+
+    <!-- 1. Quiz Modal -->
+    <div id="quiz-modal" class="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm hidden interactive">
+        <div class="glass-panel rounded-3xl p-6 md:p-8 max-w-lg w-full text-center border-sky-400 shadow-2xl relative">
+            <div class="flex justify-between items-center mb-4 border-b pb-3 border-sky-200">
+                <span class="bg-sky-500 text-white font-black text-lg px-4 py-1 rounded-full">
+                    문제 <span id="quiz-number">1</span>/5
+                </span>
+                <div id="heart-container" class="flex gap-1 text-2xl text-rose-500">
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+            </div>
+
+            <h3 class="text-xl md:text-2xl font-black text-gray-800 mb-6 leading-relaxed bg-sky-50 p-4 rounded-2xl border border-sky-200" id="quiz-question">
+                퀴즈 내용이 여기에 표시됩니다.
+            </h3>
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <button id="btn-o" class="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-5xl md:text-6xl font-black py-6 rounded-2xl shadow-lg border-b-8 border-emerald-700 transition flex flex-col items-center justify-center gap-1">
+                    <span>O</span>
+                    <span class="text-sm font-bold">맞아요!</span>
+                </button>
+                <button id="btn-x" class="bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-5xl md:text-6xl font-black py-6 rounded-2xl shadow-lg border-b-8 border-rose-700 transition flex flex-col items-center justify-center gap-1">
+                    <span>X</span>
+                    <span class="text-sm font-bold">틀려요!</span>
+                </button>
+            </div>
+
+            <p id="quiz-status-msg" class="text-base md:text-lg font-bold text-amber-600 min-h-[1.75rem]">
+                올바른 기후 행동을 골라주세요!
+            </p>
+        </div>
+    </div>
+
+    <!-- 2. Fail Modal -->
+    <div id="fail-modal" class="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm hidden interactive">
+        <div class="glass-panel rounded-3xl p-8 max-w-md w-full text-center border-red-500 shadow-2xl">
+            <div class="text-6xl mb-3">🥺</div>
+            <h2 class="text-3xl font-bold text-red-600 mb-2">다시 도전해봐요!</h2>
+            <p class="text-gray-700 text-lg mb-6">기회를 모두 사용했어요. 환경 실천 지식을 배워 다시 탐험을 시작해볼까요?</p>
+            <button id="restart-btn" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white text-2xl font-bold py-4 rounded-2xl shadow-lg transition">
+                🔄 처음부터 다시하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. Final Victory Certificate Modal -->
+    <div id="cert-modal" class="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs hidden interactive">
+        <div class="bg-amber-50 rounded-3xl p-6 md:p-8 max-w-xl w-full text-center border-8 border-amber-300 shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-28 h-28 bg-amber-400 rotate-45 flex items-end justify-center pb-2 text-white font-bold text-xs shadow-md">
+                수호 인증
+            </div>
+
+            <div class="text-5xl mb-1">🏆</div>
+            <h2 class="text-3xl md:text-4xl text-amber-900 font-extrabold mb-2" style="font-family: 'Gamja Flower', cursive;">북극 수호 인증서</h2>
+
+            <div class="mb-4 flex items-center justify-center gap-2">
+                <input type="text" id="student-name" value="기후 수호대원" class="text-center font-bold text-2xl border-b-4 border-amber-400 bg-transparent text-amber-900 px-3 py-1 focus:outline-none focus:border-emerald-500 w-56">
+                <span class="text-xl font-bold text-amber-900">어린이</span>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border-2 border-amber-200 shadow-inner mb-5 text-gray-800">
+                <p class="text-xl md:text-2xl font-bold text-emerald-600 mb-2">"북극곰이 해맑게 웃음을 찾았어요! 🐻❄️"</p>
+                <p class="text-base md:text-lg leading-relaxed text-gray-700">
+                    위 어린이는 기후변화 퀴즈를 훌륭하게 맞히고 장애물을 뛰어넘어 녹아내리던 북극의 얼음과 풍요로운 숲을 멋지게 지켜내었으므로 이 인증서를 드립니다.
+                </p>
+                <div class="mt-3 pt-3 border-t border-dashed border-gray-300 flex justify-between items-center text-sm font-bold text-gray-500">
+                    <span>지구 환경 보호국 🌍</span>
+                    <span>북극곰 수호 본부 🐾</span>
+                </div>
+            </div>
+
+            <!-- 과몰입 방지 안내 문구 -->
+            <div class="bg-amber-100/80 p-3 rounded-xl border border-amber-300 text-amber-900 font-bold text-sm md:text-base flex items-center justify-center gap-2">
+                <span>🌱</span>
+                <span>게임 과몰입 방지를 위해 하루에 한 번만 도전해주세요!</span>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // 20 Climate Action Quizzes
+        const QUIZ_POOL = [
+            { q: "쓰레기는 종이, 플라스틱, 캔으로 분리수거해서 버려요.", a: true, hint: "분리수거는 자원을 재활용할 수 있게 도와줘요!" },
+            { q: "가까운 거리는 자동차 대신 걸어가거나 자전거를 타요.", a: true, hint: "매연을 줄여서 북극의 얼음을 지킬 수 있어요!" },
+            { q: "방에서 나갈 때는 전등 스위치를 꼭 끄고 나가요.", a: true, hint: "전기를 아끼면 이산화탄소가 줄어들어요!" },
+            { q: "사용하지 않는 전자기기 플러그는 뽑아두는 것이 좋아요.", a: true, hint: "낭비되는 전기를 막아 지구가 시원해져요!" },
+            { q: "양치할 때 물을 계속 틀어놓고 양치를 해요.", a: false, hint: "양치 컵을 사용해서 물을 아껴 써야 해요!" },
+            { q: "음식을 남기지 않고 맛있게 골고루 다 먹어요.", a: true, hint: "음식물 쓰레기를 줄이면 지구가 건강해져요!" },
+            { q: "일회용 컵 대신 내 텀블러(개인 컵)를 사용해요.", a: true, hint: "일회용품을 줄이면 플라스틱 쓰레기가 줄어들어요!" },
+            { q: "장보러 갈 때는 에코백(장바구니)을 챙겨서 가요.", a: true, hint: "비닐봉지 사용을 줄여서 나무를 보호해요!" },
+            { q: "종이 휴지를 매일 필요 이상으로 아주 많이 사용해요.", a: false, hint: "종이를 아껴 써야 소중한 나무를 지킬 수 있어요!" },
+            { q: "에어컨을 켤 때는 창문과 문을 꼭 닫아둬요.", a: true, hint: "시원한 공기가 나가지 않아야 전기를 아껴요!" },
+            { q: "길가에 과자 껍질이나 쓰레기를 마음대로 버려요.", a: false, hint: "쓰레기는 꼭 쓰레기통에 바르게 버려야 해요!" },
+            { q: "손을 씻은 후 수도꼭지를 꽉 잠가서 물을 아껴요.", a: true, hint: "소중한 물을 아낄 수 있는 아주 멋진 행동이에요!" },
+            { q: "지구의 날에는 불을 끄고 지구를 쉬게 해줘요.", a: true, hint: "지구에게 휴식을 주는 소중한 시간이 돼요!" },
+            { q: "공원에 있는 예쁜 꽃과 나무를 꺾지 않고 사랑해줘요.", a: true, hint: "식물은 우리에게 깨끗한 공기를 만들어줘요!" },
+            { q: "아주 가까운 유치원도 꼭 차만 타고 가요.", a: false, hint: "걸어가면 건강도 좋아지고 매연도 줄어들어요!" },
+            { q: "냉장고 문을 길게 열어두고 구경하는 건 좋아요.", a: false, hint: "냉장고 문을 빨리 닫아야 전기가 아껴져요!" },
+            { q: "비닐봉지 대신 여러 번 쓸 수 있는 가방을 써요.", a: true, hint: "플라스틱과 비닐 쓰레기를 크게 줄여줘요!" },
+            { q: "종이 뒷면도 아껴서 그림 그리기 연습장으로 써요.", a: true, hint: "종이를 아끼면 많은 나무가 살 수 있어요!" },
+            { q: "여름철 더울 때 에어컨을 아주 춥게 설정해요.", a: false, hint: "적당한 온도를 유지해야 전기를 절약해요!" },
+            { q: "지구를 위해 작은 친환경 실천을 매일 해요.", a: true, hint: "어린이 탐험대원의 작은 실천이 북극곰을 도와줘요!" }
+        ];
+
+        // State Tracking
+        let currentSceneState = 'INTRO'; // INTRO, EXPLORE, QUIZ, VICTORY
+        let currentQuizIndex = 0;
+        let selectedQuizzes = [];
+        let playerChances = 5; // Updated to 5 chances
+        let isAnswering = false;
+        let isHitStunned = false;
+
+        // Jump Physics
+        let isJumping = false;
+        let jumpY = 0;
+        let jumpVelocity = 0;
+
+        // 3D Objects
+        let scene, camera, renderer;
+        let girlGroup, bearGroup, iceLandMesh, pathMesh;
+        let tearParticles = [];
+        let sparkleParticles = [];
+        let treesAndFlowers = [];
+        let quizGates = [];
+        let obstacles = [];
+        let iceGems = [];
+
+        const STAGE_Z_POSITIONS = [-15, -45, -75, -105, -135];
+        const BEAR_FINAL_Z = -160;
+
+        // Init on Window Load
+        window.onload = function() {
+            initThreeJS();
+            setupUIEvents();
+            animate();
+        };
+
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xbfe3f7);
+            scene.fog = new THREE.FogExp2(0xbfe3f7, 0.008);
+
+            // Camera - Initial Position focused directly in front of the Crying Bear at Intro
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 4, BEAR_FINAL_Z + 12);
+            camera.lookAt(0, 3.5, BEAR_FINAL_Z);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 40, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            // Build Environment
+            createPathAndLand();
+            createExplorerGirl();
+            createPolarBear();
+            createQuizGatesAndObstacles();
+            createTears();
+            createSparkles();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createPathAndLand() {
+            // Main Walking Path
+            const pathGeo = new THREE.BoxGeometry(7, 0.4, 180);
+            const pathMat = new THREE.MeshStandardMaterial({ color: 0x86efac, roughness: 0.8 }); // Light green
+            pathMesh = new THREE.Mesh(pathGeo, pathMat);
+            pathMesh.position.set(0, -0.2, -80);
+            pathMesh.receiveShadow = true;
+            scene.add(pathMesh);
+
+            // Starting Polar Bear Ice Land (Initially Melting Tiny Ice Sheet - Bear barely fits)
+            const iceGeo = new THREE.CylinderGeometry(2.8, 3.2, 1.2, 16);
+            const iceMat = new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.2, metalness: 0.1 });
+            iceLandMesh = new THREE.Mesh(iceGeo, iceMat);
+            iceLandMesh.position.set(0, -0.6, BEAR_FINAL_Z);
+            iceLandMesh.receiveShadow = true;
+            scene.add(iceLandMesh);
+
+            // Ice Gems/Sparkles Around Final Land
+            for(let i=0; i<12; i++) {
+                const gemGeo = new THREE.OctahedronGeometry(0.5 + Math.random()*0.3);
+                const gemMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, roughness: 0.1 });
+                const gem = new THREE.Mesh(gemGeo, gemMat);
+                const angle = (i / 12) * Math.PI * 2;
+                gem.position.set(Math.cos(angle)*7, 0.5, BEAR_FINAL_Z + Math.sin(angle)*7);
+                gem.visible = false; // Hidden at start
+                iceGems.push(gem);
+                scene.add(gem);
+            }
+
+            // Plants/Flowers along path
+            for(let z = 5; z > -150; z -= 6) {
+                createFloraCluster(-5 - Math.random()*3, z);
+                createFloraCluster(5 + Math.random()*3, z);
+            }
+        }
+
+        function createFloraCluster(x, z) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+
+            // Small Tree Trunk & Leaves
+            const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 2);
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 1;
+            group.add(trunk);
+
+            const leavesGeo = new THREE.DodecahedronGeometry(1.2);
+            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.7 });
+            const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+            leaves.position.y = 2.5;
+            group.add(leaves);
+
+            // Flowers
+            for(let i=0; i<3; i++) {
+                const flower = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.3, 8, 8),
+                    new THREE.MeshStandardMaterial({ color: (i % 2 === 0) ? 0xf43f5e : 0xfacc15 })
+                );
+                flower.position.set((Math.random()-0.5)*1.5, 0.3, (Math.random()-0.5)*1.5);
+                group.add(flower);
+            }
+
+            group.scale.set(0.3, 0.3, 0.3); // Starts small
+            scene.add(group);
+            treesAndFlowers.push(group);
+        }
+
+        function createExplorerGirl() {
+            girlGroup = new THREE.Group();
+            girlGroup.position.set(0, 0, 8);
+
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdfc4, roughness: 0.6 }); // Natural Skin Tone
+            const pinkMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.5 }); // Pink Shirt
+            const greenMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.5 }); // Green Skirt
+            const shoeMat = new THREE.MeshStandardMaterial({ color: 0x854d0e }); // Brown shoes
+            const hairMat = new THREE.MeshStandardMaterial({ color: 0x3b1e08, roughness: 0.5 }); // Soft Natural Brown Hair
+
+            // Body / Pink Shirt
+            const bodyGeo = new THREE.CylinderGeometry(0.4, 0.45, 1.2, 12);
+            const body = new THREE.Mesh(bodyGeo, pinkMat);
+            body.position.y = 1.1;
+            body.castShadow = true;
+            girlGroup.add(body);
+
+            // Green Explorer Skirt
+            const skirtGeo = new THREE.ConeGeometry(0.75, 0.6, 12);
+            const skirt = new THREE.Mesh(skirtGeo, greenMat);
+            skirt.position.y = 0.7;
+            girlGroup.add(skirt);
+
+            // Girl Arms (Seamlessly Attached to Body)
+            const armGeo = new THREE.CylinderGeometry(0.13, 0.11, 0.75, 12);
+            const armL = new THREE.Mesh(armGeo, pinkMat);
+            armL.position.set(-0.45, 1.05, 0); // Attaches seamlessly to torso
+            armL.rotation.z = 0.15;
+            const armR = armL.clone();
+            armR.position.x = 0.45;
+            armR.rotation.z = -0.15;
+            girlGroup.add(armL);
+            girlGroup.add(armR);
+
+            const handGeo = new THREE.SphereGeometry(0.11, 8, 8);
+            const handL = new THREE.Mesh(handGeo, skinMat);
+            handL.position.set(-0.5, 0.65, 0);
+            const handR = handL.clone();
+            handR.position.x = 0.5;
+            girlGroup.add(handL);
+            girlGroup.add(handR);
+
+            // Girl Legs & Shoes
+            const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.6, 8);
+            const legL = new THREE.Mesh(legGeo, skinMat);
+            legL.position.set(-0.23, 0.3, 0);
+            const legR = legL.clone();
+            legR.position.x = 0.23;
+            girlGroup.add(legL);
+            girlGroup.add(legR);
+
+            const shoeGeo = new THREE.BoxGeometry(0.2, 0.18, 0.32);
+            const shoeL = new THREE.Mesh(shoeGeo, shoeMat);
+            shoeL.position.set(-0.23, 0.08, 0.04);
+            const shoeR = shoeL.clone();
+            shoeR.position.x = 0.23;
+            girlGroup.add(shoeL);
+            girlGroup.add(shoeR);
+
+            // Head & Neck
+            const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.2), skinMat);
+            neck.position.y = 1.7;
+            girlGroup.add(neck);
+
+            const headGeo = new THREE.SphereGeometry(0.48, 16, 16);
+            const head = new THREE.Mesh(headGeo, skinMat);
+            head.position.y = 2.0;
+            head.castShadow = true;
+            girlGroup.add(head);
+
+            // Natural Back Hair Style (Elegantly layered hair flowing down the back under the hat)
+            const hairMain = new THREE.Mesh(new THREE.SphereGeometry(0.51, 16, 16), hairMat);
+            hairMain.position.set(0, 2.02, 0.02);
+            hairMain.scale.set(1.02, 1.02, 1.05);
+            girlGroup.add(hairMain);
+
+            // Flowing Hair Strand down the back
+            const hairFlowGroup = new THREE.Group();
+            
+            const backStrandUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.32, 0.8, 12), hairMat);
+            backStrandUpper.position.set(0, 1.55, 0.22);
+            backStrandUpper.rotation.x = -0.1;
+            hairFlowGroup.add(backStrandUpper);
+
+            const backStrandLower = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.12, 0.8, 12), hairMat);
+            backStrandLower.position.set(0, 0.95, 0.28);
+            backStrandLower.rotation.x = -0.05;
+            hairFlowGroup.add(backStrandLower);
+
+            girlGroup.add(hairFlowGroup);
+
+            // Explorer Hat
+            const hatRim = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.78, 0.08), new THREE.MeshStandardMaterial({ color: 0xd97706 }));
+            hatRim.position.y = 2.38;
+            girlGroup.add(hatRim);
+            const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.52, 0.38), new THREE.MeshStandardMaterial({ color: 0xd97706 }));
+            hatTop.position.y = 2.58;
+            girlGroup.add(hatTop);
+
+            scene.add(girlGroup);
+        }
+
+        function createPolarBear() {
+            bearGroup = new THREE.Group();
+            bearGroup.position.set(0, 0, BEAR_FINAL_Z);
+
+            const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
+            const blackMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+            const padMat = new THREE.MeshBasicMaterial({ color: 0xfbcfe8 }); // Pink paw pads
+
+            // Body
+            const body = new THREE.Mesh(new THREE.SphereGeometry(1.8, 16, 16), whiteMat);
+            body.scale.set(1, 1.2, 1);
+            body.position.y = 2.2;
+            bearGroup.add(body);
+
+            // Smooth Rounded Arms & Shoulders naturally blending with body
+            const shoulderGeo = new THREE.SphereGeometry(0.5, 12, 12);
+            const armGeo = new THREE.CylinderGeometry(0.4, 0.45, 1.4, 12);
+
+            const shoulderL = new THREE.Mesh(shoulderGeo, whiteMat);
+            shoulderL.position.set(-1.4, 2.8, 0.2);
+            const armL = new THREE.Mesh(armGeo, whiteMat);
+            armL.position.set(-1.5, 2.1, 0.4);
+            armL.rotation.z = 0.25;
+            armL.rotation.x = -0.15;
+            bearGroup.add(shoulderL);
+            bearGroup.add(armL);
+
+            const shoulderR = shoulderL.clone();
+            shoulderR.position.x = 1.4;
+            const armR = armL.clone();
+            armR.position.x = 1.5;
+            armR.rotation.z = -0.25;
+            bearGroup.add(shoulderR);
+            bearGroup.add(armR);
+
+            // Back Legs & Paw Pads
+            const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 1.3, 12), whiteMat);
+            legL.position.set(-1.1, 0.6, 0.2);
+            const legR = legL.clone();
+            legR.position.x = 1.1;
+            bearGroup.add(legL);
+            bearGroup.add(legR);
+
+            const pawL = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), padMat);
+            pawL.scale.set(1, 0.3, 1.2);
+            pawL.position.set(-1.1, 0.1, 0.7);
+            const pawR = pawL.clone();
+            pawR.position.x = 1.1;
+            bearGroup.add(pawL);
+            bearGroup.add(pawR);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.SphereGeometry(1.3, 16, 16), whiteMat);
+            head.position.set(0, 3.8, 0.3);
+            bearGroup.add(head);
+
+            // Ears
+            const earL = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), whiteMat);
+            earL.position.set(-1.0, 4.8, 0.2);
+            const earR = earL.clone();
+            earR.position.x = 1.0;
+            bearGroup.add(earL);
+            bearGroup.add(earR);
+
+            // Snout
+            const snout = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 12), whiteMat);
+            snout.position.set(0, 3.6, 1.3);
+            bearGroup.add(snout);
+
+            // Nose
+            const nose = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), blackMat);
+            nose.position.set(0, 3.8, 1.8);
+            bearGroup.add(nose);
+
+            // Eyes with Sparkle/Glint
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), blackMat);
+            eyeL.position.set(-0.45, 4.0, 1.4);
+            const eyeR = eyeL.clone();
+            eyeR.position.x = 0.45;
+            bearGroup.add(eyeL);
+            bearGroup.add(eyeR);
+
+            const glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const glintL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), glintMat);
+            glintL.position.set(-0.4, 4.05, 1.52);
+            const glintR = glintL.clone();
+            glintR.position.x = 0.5;
+            bearGroup.add(glintL);
+            bearGroup.add(glintR);
+
+            // Crying Mouth (Sad Mouth Arc)
+            const mouthGeo = new THREE.TorusGeometry(0.2, 0.05, 8, 12, Math.PI);
+            const mouthMat = new THREE.MeshBasicMaterial({ color: 0x991b1b });
+            bearGroup.mouthSad = new THREE.Mesh(mouthGeo, mouthMat);
+            bearGroup.mouthSad.position.set(0, 3.35, 1.7);
+            bearGroup.mouthSad.rotation.x = Math.PI; // Sad frown
+            bearGroup.add(bearGroup.mouthSad);
+
+            // Happy Mouth Arc (Hidden initially)
+            bearGroup.mouthHappy = new THREE.Mesh(mouthGeo, new THREE.MeshBasicMaterial({ color: 0x15803d }));
+            bearGroup.mouthHappy.position.set(0, 3.4, 1.7);
+            bearGroup.mouthHappy.rotation.x = 0; // Happy smile
+            bearGroup.mouthHappy.visible = false;
+            bearGroup.add(bearGroup.mouthHappy);
+
+            scene.add(bearGroup);
+        }
+
+        function createTears() {
+            const tearGeo = new THREE.SphereGeometry(0.12, 8, 8);
+            const tearMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
+            
+            for(let i=0; i<6; i++) {
+                const tear = new THREE.Mesh(tearGeo, tearMat);
+                tear.position.set(
+                    (i % 2 === 0 ? -0.45 : 0.45),
+                    3.8 - (i * 0.4),
+                    BEAR_FINAL_Z + 1.5
+                );
+                scene.add(tear);
+                tearParticles.push(tear);
+            }
+        }
+
+        function createSparkles() {
+            const sparkGeo = new THREE.OctahedronGeometry(0.25);
+            const sparkMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+            for(let i=0; i<20; i++) {
+                const spark = new THREE.Mesh(sparkGeo, sparkMat);
+                spark.position.set(
+                    (Math.random()-0.5)*10,
+                    1 + Math.random()*5,
+                    BEAR_FINAL_Z + (Math.random()-0.5)*10
+                );
+                spark.visible = false;
+                scene.add(spark);
+                sparkleParticles.push(spark);
+            }
+        }
+
+        function createQuizGatesAndObstacles() {
+            const obstacleTypes = [
+                { type: 'smog', color: 0x475569, title: "매연 발생! 🌫️", msg: "대중교통을 이용해 매연이 줄어들었어요! 🚌" },
+                { type: 'trash', color: 0x854d0e, title: "쓰레기 방치! 🗑️", msg: "분리배출과 재활용으로 쓰레기를 치웠어요! ♻️" },
+                { type: 'co2', color: 0xd97706, title: "이산화탄소 배출! 💨", msg: "전기를 아껴 이산화탄소를 줄였어요! 💡" },
+                { type: 'water', color: 0x0284c7, title: "물 낭비! 💧", msg: "양치 컵을 써서 물을 아껴 썼어요! 🥛" },
+                { type: 'co2', color: 0xd97706, title: "이산화탄소 배출! 💨", msg: "나무를 심어 깨끗한 공기를 만들었어요! 🌲" }
+            ];
+
+            STAGE_Z_POSITIONS.forEach((zPos, idx) => {
+                // 1. Quiz Gate Sign
+                const gateGroup = new THREE.Group();
+                gateGroup.position.set(0, 0, zPos);
+
+                const postGeo = new THREE.CylinderGeometry(0.15, 0.15, 4);
+                const postMat = new THREE.MeshStandardMaterial({ color: 0x0284c7 });
+                const postL = new THREE.Mesh(postGeo, postMat);
+                postL.position.set(-3, 2, 0);
+                const postR = postL.clone();
+                postR.position.x = 3;
+                gateGroup.add(postL);
+                gateGroup.add(postR);
+
+                const signBoard = new THREE.Mesh(
+                    new THREE.BoxGeometry(6.4, 1.2, 0.3),
+                    new THREE.MeshStandardMaterial({ color: 0x38bdf8 })
+                );
+                signBoard.position.set(0, 3.6, 0);
+                gateGroup.add(signBoard);
+                scene.add(gateGroup);
+                quizGates.push({ group: gateGroup, z: zPos, answered: false });
+
+                // 2. Obstacle & Trampoline Jump Device in front of Gate
+                const obsZ = zPos + 10;
+                const obsInfo = obstacleTypes[idx];
+
+                // Trampoline Jump Pad
+                const padGeo = new THREE.CylinderGeometry(1.2, 1.4, 0.2, 16);
+                const padMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706 });
+                const trampPad = new THREE.Mesh(padGeo, padMat);
+                trampPad.position.set(0, 0.1, obsZ + 3);
+                scene.add(trampPad);
+
+                // Obstacle Object
+                const obsGeo = new THREE.DodecahedronGeometry(0.9);
+                const obsMat = new THREE.MeshStandardMaterial({ color: obsInfo.color, roughness: 0.3 });
+                const obsMesh = new THREE.Mesh(obsGeo, obsMat);
+                obsMesh.position.set(0, 0.9, obsZ);
+                scene.add(obsMesh);
+
+                obstacles.push({
+                    mesh: obsMesh,
+                    z: obsZ,
+                    cleared: false,
+                    info: obsInfo
+                });
+            });
+        }
+
+        function setupUIEvents() {
+            document.getElementById('start-btn').addEventListener('click', startGame);
+            document.getElementById('jump-btn').addEventListener('click', triggerJump);
+            document.getElementById('btn-o').addEventListener('click', () => handleQuizAnswer(true));
+            document.getElementById('btn-x').addEventListener('click', () => handleQuizAnswer(false));
+            document.getElementById('restart-btn').addEventListener('click', restartGame);
+
+            window.addEventListener('keydown', (e) => {
+                if(e.code === 'Space' && currentSceneState === 'EXPLORE') {
+                    triggerJump();
+                }
+            });
+        }
+
+        function startGame() {
+            document.getElementById('start-btn-container').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            document.getElementById('jump-btn-container').classList.remove('hidden');
+
+            // Move camera back to Explorer Girl's view position
+            camera.position.set(0, 7, girlGroup.position.z + 10);
+
+            // Pick 5 random quizzes from pool
+            selectedQuizzes = [...QUIZ_POOL].sort(() => 0.5 - Math.random()).slice(0, 5);
+            currentQuizIndex = 0;
+            playerChances = 5; // Updated to 5 chances
+            updateHeartsUI();
+
+            currentSceneState = 'EXPLORE';
+            document.getElementById('bear-speech-text').innerHTML = "화이팅! 퀴즈를 맞히고 얼음을 지켜줘! 🐾";
+        }
+
+        function triggerJump() {
+            if(!isJumping && !isHitStunned && currentSceneState === 'EXPLORE') {
+                isJumping = true;
+                jumpVelocity = 0.42;
+            }
+        }
+
+        function updateHeartsUI() {
+            const container = document.getElementById('heart-container');
+            container.innerHTML = '';
+            for(let i=0; i<playerChances; i++) {
+                container.innerHTML += '<i class="fa-solid fa-heart"></i>';
+            }
+        }
+
+        let toastTimeout = null;
+        function showObstacleToast(title, text, isSuccess) {
+            const toast = document.getElementById('obstacle-toast');
+            const titleEl = document.getElementById('toast-title');
+            const textEl = document.getElementById('toast-text');
+
+            if (toastTimeout) clearTimeout(toastTimeout);
+
+            titleEl.textContent = title;
+            titleEl.className = isSuccess ? "text-2xl font-extrabold text-emerald-600 mb-1" : "text-2xl font-extrabold text-rose-600 mb-1";
+            textEl.textContent = text;
+
+            toast.classList.remove('-translate-y-24', 'opacity-0');
+            toast.classList.add('translate-y-6', 'opacity-100');
+
+            // Extended display time to 4.5 seconds for reading
+            toastTimeout = setTimeout(() => {
+                toast.classList.remove('translate-y-6', 'opacity-100');
+                toast.classList.add('-translate-y-24', 'opacity-0');
+            }, 4500);
+        }
+
+        function triggerHitPenalty(obstacleInfo) {
+            if(isHitStunned) return;
+            isHitStunned = true;
+            playerChances--;
+            updateHeartsUI();
+
+            // Flash Screen Red
+            const flashOverlay = document.getElementById('hit-flash-overlay');
+            flashOverlay.classList.add('hit-stun-active');
+
+            // Move player back slightly behind the obstacle so they can re-attempt the jump
+            girlGroup.position.z += 5;
+
+            showObstacleToast("⚠️ 점프 실패! (뒤로 이동)", `${obstacleInfo.title}에 부딪혔어요! 다시 트램펄린에서 점프를 시도해봐요!`, false);
+
+            setTimeout(() => {
+                flashOverlay.classList.remove('hit-stun-active');
+                isHitStunned = false;
+
+                if(playerChances <= 0) {
+                    showFailModal();
+                }
+            }, 2000);
+        }
+
+        function triggerQuizGate() {
+            currentSceneState = 'QUIZ';
+            document.getElementById('jump-btn-container').classList.add('hidden');
+            
+            const currentQ = selectedQuizzes[currentQuizIndex];
+            document.getElementById('quiz-number').textContent = currentQuizIndex + 1;
+            document.getElementById('quiz-question').textContent = currentQ.q;
+            document.getElementById('quiz-status-msg').textContent = "올바른 기후 행동을 골라주세요!";
+            document.getElementById('quiz-status-msg').className = "text-base md:text-lg font-bold text-amber-600 min-h-[1.75rem]";
+            
+            document.getElementById('quiz-modal').classList.remove('hidden');
+            isAnswering = false;
+        }
+
+        function handleQuizAnswer(userAnswer) {
+            if(isAnswering) return;
+            isAnswering = true;
+
+            const currentQ = selectedQuizzes[currentQuizIndex];
+            const isCorrect = (userAnswer === currentQ.a);
+            const statusMsg = document.getElementById('quiz-status-msg');
+
+            if(isCorrect) {
+                statusMsg.textContent = `⭕ 정답이에요! ${currentQ.hint}`;
+                statusMsg.className = "text-base md:text-lg font-bold text-emerald-600 min-h-[1.75rem]";
+                
+                // Grow Flora along the path
+                growFlora();
+
+                setTimeout(() => {
+                    document.getElementById('quiz-modal').classList.add('hidden');
+                    currentQuizIndex++;
+                    document.getElementById('progress-text').textContent = `탐험 진행률: ${currentQuizIndex}/5`;
+
+                    if(currentQuizIndex >= 5) {
+                        triggerVictory();
+                    } else {
+                        currentSceneState = 'EXPLORE';
+                        document.getElementById('jump-btn-container').classList.remove('hidden');
+                    }
+                }, 1800);
+
+            } else {
+                playerChances--;
+                updateHeartsUI();
+
+                if(playerChances > 0) {
+                    statusMsg.textContent = `❌ 아쉬워요! 다시 한번 기회가 남았어요. (힌트: ${currentQ.hint})`;
+                    statusMsg.className = "text-base md:text-lg font-bold text-rose-600 min-h-[1.75rem]";
+                    setTimeout(() => { isAnswering = false; }, 1000);
+                } else {
+                    statusMsg.textContent = `❌ 기회를 모두 사용했어요!`;
+                    setTimeout(() => {
+                        document.getElementById('quiz-modal').classList.add('hidden');
+                        showFailModal();
+                    }, 1200);
+                }
+            }
+        }
+
+        function growFlora() {
+            treesAndFlowers.forEach((flora) => {
+                const targetScale = 0.3 + (currentQuizIndex + 1) * 0.25;
+                flora.scale.set(targetScale, targetScale, targetScale);
+            });
+        }
+
+        function triggerVictory() {
+            currentSceneState = 'VICTORY';
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('jump-btn-container').classList.add('hidden');
+
+            // Transform Polar Bear to Happy
+            bearGroup.mouthSad.visible = false;
+            bearGroup.mouthHappy.visible = true;
+            
+            // Hide Tears, Show Sparkles & Ice Gems
+            tearParticles.forEach(t => t.visible = false);
+            sparkleParticles.forEach(s => s.visible = true);
+            iceGems.forEach(g => g.visible = true);
+
+            // Expand Ice Land to huge icy continent
+            iceLandMesh.scale.set(3.5, 1, 3.5);
+
+            // Update Bear Speech
+            document.getElementById('bear-speech-text').innerHTML = "와아! 고마워! 숲이 무성해지고 북극의 얼음이 다시 커졌어! 😃🎉";
+
+            // Launch Confetti Fireworks
+            startConfetti();
+
+            setTimeout(() => {
+                document.getElementById('cert-modal').classList.remove('hidden');
+            }, 2500);
+        }
+
+        function showFailModal() {
+            currentSceneState = 'FAIL';
+            document.getElementById('fail-modal').classList.remove('hidden');
+        }
+
+        function restartGame() {
+            location.reload();
+        }
+
+        function updateBearSpeechBubblePosition() {
+            if (!bearGroup || !camera) return;
+
+            const bearHeadPos = new THREE.Vector3();
+            bearGroup.getWorldPosition(bearHeadPos);
+            bearHeadPos.y += 5.2;
+
+            bearHeadPos.project(camera);
+
+            const x = (bearHeadPos.x * .5 + .5) * window.innerWidth;
+            const y = (-(bearHeadPos.y * .5) + .5) * window.innerHeight;
+
+            const bubble = document.getElementById('bear-speech');
+            if (bubble) {
+                bubble.style.left = `${x}px`;
+                bubble.style.top = `${y}px`;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 1. Jump Physics
+            if(isJumping) {
+                jumpY += jumpVelocity;
+                jumpVelocity -= 0.03; // Gravity
+                if(jumpY <= 0) {
+                    jumpY = 0;
+                    isJumping = false;
+                }
+                girlGroup.position.y = jumpY;
+            }
+
+            // 2. Exploration Movement
+            if(currentSceneState === 'EXPLORE' && !isHitStunned) {
+                girlGroup.position.z -= 0.18; // Move forward
+
+                // Camera follow girl
+                camera.position.z = girlGroup.position.z + 12;
+                camera.position.x = girlGroup.position.x;
+                camera.lookAt(girlGroup.position.x, 2, girlGroup.position.z - 5);
+
+                // Check Obstacles Collision & Trampoline Jump Clearance
+                obstacles.forEach(obs => {
+                    if(!obs.cleared && Math.abs(girlGroup.position.z - obs.z) < 1.2) {
+                        if(jumpY > 0.8) {
+                            // Successfully Jumped Over
+                            obs.cleared = true;
+                            showObstacleToast("🎉 점프 성공!", obs.info.msg, true);
+                        } else {
+                            // Hit Obstacle Penalty
+                            triggerHitPenalty(obs.info);
+                        }
+                    }
+                });
+
+                // Check Quiz Gate Trigger
+                if(currentQuizIndex < 5) {
+                    const currentGate = quizGates[currentQuizIndex];
+                    if(!currentGate.answered && girlGroup.position.z <= currentGate.z + 1) {
+                        currentGate.answered = true;
+                        triggerQuizGate();
+                    }
+                }
+            } else if(currentSceneState === 'INTRO') {
+                // Intro Bear Tear Animation & Focus Camera on Bear
+                tearParticles.forEach((tear, idx) => {
+                    tear.position.y -= 0.05;
+                    if(tear.position.y < 2.0) {
+                        tear.position.y = 4.0;
+                    }
+                });
+                camera.position.set(0, 4.2, BEAR_FINAL_Z + 12);
+                camera.lookAt(0, 3.2, BEAR_FINAL_Z);
+            } else if(currentSceneState === 'VICTORY') {
+                // Victory Sparkle Animation
+                sparkleParticles.forEach((s, idx) => {
+                    s.rotation.y += 0.05;
+                    s.position.y += Math.sin(Date.now()*0.003 + idx)*0.02;
+                });
+                iceGems.forEach(g => g.rotation.y += 0.03);
+
+                camera.position.set(0, 6, BEAR_FINAL_Z + 14);
+                camera.lookAt(0, 3, BEAR_FINAL_Z);
+            }
+
+            // Update Speech Bubble Overlay Position
+            updateBearSpeechBubblePosition();
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Confetti Celebration Effect
+        function startConfetti() {
+            const canvas = document.getElementById('confetti-canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const particles = [];
+            const colors = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+
+            for(let i=0; i<150; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height - canvas.height,
+                    size: Math.random() * 10 + 5,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    speedY: Math.random() * 4 + 2,
+                    speedX: Math.random() * 2 - 1,
+                    spin: Math.random() * 360
+                });
+            }
+
+            function renderConfetti() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                particles.forEach(p => {
+                    p.y += p.speedY;
+                    p.x += p.speedX;
+                    p.spin += 5;
+
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate((p.spin * Math.PI) / 180);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+                    ctx.restore();
+
+                    if(p.y > canvas.height) p.y = -20;
+                });
+                requestAnimationFrame(renderConfetti);
+            }
+            renderConfetti();
+        }
+    </script>
+</body>
+</html>
